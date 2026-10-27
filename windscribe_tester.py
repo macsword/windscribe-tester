@@ -9,11 +9,125 @@ import re
 import os
 import shutil
 
-# windscribe-cli locations prints JSON log lines and no server list.
-# Datacenters live in the app inventory. Connect with the nickname.
-INVENTORY_PLIST = os.path.expanduser(
+# windscribe-cli locations prints JSON log lines and no server list while the
+# desktop app is running. Datacenters live in the app settings. Connect with
+# the nickname.
+IS_WINDOWS = os.name == "nt"
+MAC_INVENTORY_PLIST = os.path.expanduser(
     "~/Library/Preferences/com.windscribe.Windscribe2.plist"
 )
+WINDOWS_SETTINGS_KEY = r"Software\Windscribe\Windscribe2"
+
+
+def subprocess_kwargs():
+    """Keep CLI and ping from opening a console window on Windows."""
+    if IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
+def read_wsnet_settings():
+    """JSON blob that contains invLocations."""
+    if IS_WINDOWS:
+        return _read_wsnet_settings_windows()
+    with open(MAC_INVENTORY_PLIST, "rb") as f:
+        root = plistlib.load(f)
+    value = root["wsnetSettings"]
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    return value
+
+
+def _read_wsnet_settings_windows():
+    import winreg
+
+    last_error = None
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, WINDOWS_SETTINGS_KEY) as key:
+                value, _typ = winreg.QueryValueEx(key, "wsnetSettings")
+        except OSError as exc:
+            last_error = exc
+            continue
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        value = str(value).lstrip("\ufeff").strip()
+        if value:
+            return value
+    raise FileNotFoundError(
+        "Windscribe settings were not found in HKCU\\" + WINDOWS_SETTINGS_KEY
+    ) from last_error
+
+
+def servers_from_settings(text):
+    settings = json.loads(text)
+    inventory = json.loads(settings["invLocations"])
+    servers = []
+    seen = set()
+    for loc in inventory["data"]["locations"]:
+        country = (loc.get("country_code") or "").strip()
+        for dc in loc.get("datacenters") or []:
+            if dc.get("status") != 1:
+                continue
+            city = (dc.get("city") or "").strip()
+            nick = (dc.get("nick") or "").strip()
+            if not nick or nick in seen:
+                continue
+            seen.add(nick)
+            label = f"{city} - {nick}" if city else nick
+            if country:
+                label = f"{label} ({country})"
+            servers.append((label, nick))
+    servers.sort(key=lambda item: item[0].lower())
+    return servers
+
+
+def servers_from_cli_text(text):
+    """Parse `Region - City - Nickname` lines. Skip JSON log lines."""
+    servers = []
+    seen = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("{") or line.lower().startswith("windscribe"):
+            continue
+        parts = [part.strip() for part in re.split(r"\s+-\s+", line) if part.strip()]
+        if len(parts) < 2:
+            continue
+        nick = parts[-1]
+        city = parts[-2]
+        if not nick or nick.lower() in {"nickname", "location", "locations"}:
+            continue
+        if nick in seen:
+            continue
+        seen.add(nick)
+        servers.append((f"{city} - {nick}", nick))
+    servers.sort(key=lambda item: item[0].lower())
+    return servers
+
+
+def parse_ping_ms(stdout):
+    """Average RTT from macOS or Windows ping output."""
+    mac = re.search(r"min/avg/max/[a-z]+ = [\d.]+/([\d.]+)/", stdout)
+    if mac:
+        return round(float(mac.group(1)), 1)
+    windows = re.search(
+        r"(?:Average|Mittelwert|Moyenne|Media|Gemiddelde|Média)\s*=\s*([\d.]+)\s*ms",
+        stdout,
+        re.I,
+    )
+    if windows:
+        return round(float(windows.group(1)), 1)
+    samples = [float(n) for n in re.findall(r"(?:time|zeit|temps|tiempo|tempo)\s*=\s*([\d.]+)\s*ms", stdout, re.I)]
+    samples.extend(1.0 for _ in re.findall(r"(?:time|zeit|temps)\s*<\s*1\s*ms", stdout, re.I))
+    if samples:
+        return round(sum(samples) / len(samples), 1)
+    return None
+
+
+def ping_command(target):
+    if IS_WINDOWS:
+        return ["ping", "-n", "3", "-w", "2000", target]
+    return ["ping", "-c", "3", "-W", "2000", target]
 
 # Supported Windscribe CLI protocols
 PROTOCOLS = ["wireguard", "ikev2", "udp", "tcp", "stealth", "wstunnel"]
@@ -38,20 +152,28 @@ class WindscribeTesterApp:
         self.reload_servers()
 
     def detect_cli_path(self):
-        """Finds the windscribe-cli binary on macOS."""
-        which_path = shutil.which("windscribe-cli") or shutil.which("windscribe")
+        """Finds windscribe-cli on macOS or Windows."""
+        which_path = shutil.which("windscribe-cli") or shutil.which("windscribe-cli.exe")
         if which_path:
             return which_path
-        
-        mac_bundle_paths = [
-            "/usr/local/bin/windscribe-cli",
-            "/Applications/Windscribe.app/Contents/MacOS/windscribe-cli",
-            "/Applications/Windscribe.app/Contents/Resources/windscribe-cli",
-        ]
-        for p in mac_bundle_paths:
-            if os.path.exists(p):
-                return p
-        return "/Applications/Windscribe.app/Contents/MacOS/windscribe-cli"
+
+        if IS_WINDOWS:
+            program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+            program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            candidates = [
+                os.path.join(program_files, "Windscribe", "windscribe-cli.exe"),
+                os.path.join(program_files_x86, "Windscribe", "windscribe-cli.exe"),
+            ]
+        else:
+            candidates = [
+                "/usr/local/bin/windscribe-cli",
+                "/Applications/Windscribe.app/Contents/MacOS/windscribe-cli",
+                "/Applications/Windscribe.app/Contents/Resources/windscribe-cli",
+            ]
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        return candidates[0]
 
     def build_ui(self):
         # --- Top Settings Bar ---
@@ -167,38 +289,32 @@ class WindscribeTesterApp:
 
     # --- Server List Actions ---
     def load_datacenters(self):
-        """Online datacenters from the Windscribe app inventory."""
-        with open(INVENTORY_PLIST, "rb") as f:
-            root = plistlib.load(f)
-        settings = json.loads(root["wsnetSettings"])
-        inventory = json.loads(settings["invLocations"])
-        servers = []
-        seen = set()
-        for loc in inventory["data"]["locations"]:
-            country = (loc.get("country_code") or "").strip()
-            for dc in loc.get("datacenters") or []:
-                if dc.get("status") != 1:
-                    continue
-                city = (dc.get("city") or "").strip()
-                nick = (dc.get("nick") or "").strip()
-                if not nick or nick in seen:
-                    continue
-                seen.add(nick)
-                label = f"{city} - {nick}" if city else nick
-                if country:
-                    label = f"{label} ({country})"
-                servers.append((label, nick))
-        servers.sort(key=lambda item: item[0].lower())
-        return servers
+        """Online datacenters from Windscribe settings, then the CLI."""
+        try:
+            return servers_from_settings(read_wsnet_settings()), "Windscribe settings"
+        except Exception as settings_error:
+            cli = self.cli_entry.get().strip()
+            if not cli or not os.path.exists(cli):
+                raise settings_error
+            out = self.run_cmd([cli, "locations"], timeout=15)
+            servers = servers_from_cli_text(out)
+            if not servers:
+                raise settings_error
+            return servers, "Windscribe CLI"
 
     def reload_servers(self):
         try:
-            servers = self.load_datacenters()
+            servers, source = self.load_datacenters()
         except Exception as e:
+            where = (
+                "HKCU\\" + WINDOWS_SETTINGS_KEY
+                if IS_WINDOWS
+                else MAC_INVENTORY_PLIST
+            )
             messagebox.showerror(
                 "Servers",
-                "Could not read Windscribe datacenters from the app inventory.\n"
-                f"{e}",
+                "Could not read Windscribe datacenters.\n"
+                f"Looked in {where}.\n{e}",
             )
             return
         self.server_targets = {label: nick for label, nick in servers}
@@ -206,7 +322,7 @@ class WindscribeTesterApp:
         self.apply_server_filter()
         shown = self.avail_listbox.size()
         self.status_var.set(
-            f"Loaded {len(self.all_servers)} servers. Showing {shown}. "
+            f"Loaded {len(self.all_servers)} servers from {source}. Showing {shown}. "
             "Connect uses each server nickname."
         )
 
@@ -331,7 +447,8 @@ class WindscribeTesterApp:
                 [cli, "connect", server, proto],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                **subprocess_kwargs(),
             )
 
             while time.time() - start_time < timeout_sec:
@@ -354,25 +471,29 @@ class WindscribeTesterApp:
             return False
 
     def measure_ping(self, target, timeout=6):
-        """Runs macOS native ping and parses the average RTT in ms."""
+        """Runs the platform ping command and parses the average RTT in ms."""
         try:
             res = subprocess.run(
-                ["ping", "-c", "3", "-W", "2000", target],
+                ping_command(target),
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                **subprocess_kwargs(),
             )
-            # macOS ping summary format: round-trip min/avg/max/stddev = 24.123/28.456/32.789/3.111 ms
-            match = re.search(r"min/avg/max/[a-z]+ = [\d\.]+/([\d\.]+)/", res.stdout)
-            if match:
-                return round(float(match.group(1)), 1)
+            return parse_ping_ms(res.stdout)
         except Exception:
-            pass
-        return None
+            return None
 
     def run_cmd(self, cmd_list, timeout=5):
         try:
-            res = subprocess.run(cmd_list, capture_output=True, text=True, timeout=timeout)
+            res = subprocess.run(
+                cmd_list,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                errors="replace",
+                **subprocess_kwargs(),
+            )
             return res.stdout + res.stderr
         except Exception:
             return ""
@@ -442,7 +563,10 @@ class WindscribeTesterApp:
 
         self.status_var.set(f"Connecting to {server} via {proto.upper()}...")
         threading.Thread(
-            target=lambda: subprocess.run([cli, "connect", target, proto]),
+            target=lambda: subprocess.run(
+                [cli, "connect", target, proto],
+                **subprocess_kwargs(),
+            ),
             daemon=True
         ).start()
 
