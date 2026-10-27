@@ -4,6 +4,15 @@ Desktop app that tries Windscribe datacenters and protocols, then sorts the ones
 
 It reads the servers already stored by the Windscribe app (city and nickname), because `windscribe-cli locations` only prints log lines. A connection uses the datacenter nickname, for example `Magic City`.
 
+## Install
+
+Download the latest build from the [releases page](https://github.com/macsword/windscribe-tester/releases/latest).
+
+- **macOS:** open `WindscribeTester-macOS.dmg` and drag **Windscribe Tester** into Applications. The app is not notarized, so the first launch needs a right-click and Open.
+- **Windows:** run `WindscribeTester-Windows.exe`. Windows SmartScreen may warn on the first launch. Choose More info, then Run anyway.
+
+Windscribe must already be installed and logged in. These builds do not include your account.
+
 ## Requirements
 
 - macOS or Windows 10/11
