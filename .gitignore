@@ -4,3 +4,8 @@ __pycache__/
 build/
 dist/
 *.spec
+DerivedData/
+xcuserdata/
+*.xcuserstate
+WindscribeTester.xcodeproj/project.xcworkspace/xcuserdata/
+.idea/

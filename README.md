@@ -1,50 +1,68 @@
 # Windscribe Tester
 
-Desktop app that tries Windscribe datacenters and protocols, then sorts the ones that connect by ping.
+Native macOS app that tries Windscribe datacenters and protocols, then ranks the ones that connect by ping.
 
-It reads the servers already stored by the Windscribe app (city and nickname), because `windscribe-cli locations` only prints log lines. A connection uses the datacenter nickname, for example `Magic City`.
+It reads the servers already stored by the Windscribe app (city, nickname, region, 10 Gbps, Pro, P2P). Connect uses the datacenter nickname, for example `Magic City`.
+
+Requires **macOS 14+**, and [Windscribe](https://windscribe.com/) installed and logged in.
 
 ## Install
 
 Download the latest build from the [releases page](https://github.com/macsword/windscribe-tester/releases/latest).
 
-- **macOS:** open `WindscribeTester-macOS.dmg` and drag **Windscribe Tester** into Applications. The app is not notarized, so the first launch needs a right-click and Open.
-- **Windows:** run `WindscribeTester-Windows.exe`. Windows SmartScreen may warn on the first launch. Choose More info, then Run anyway.
+- **macOS 14+:** open `WindscribeTester-macOS.dmg` and drag **Windscribe Tester** into Applications. The app is not notarized, so the first launch needs a right-click and Open.
+- **Windows:** use the [v1.0.0 Python build](https://github.com/macsword/windscribe-tester/releases/tag/v1.0.0), or run `legacy/windscribe_tester.py`. Version 2 is macOS-only.
 
 Windscribe must already be installed and logged in. These builds do not include your account.
 
-## Requirements
+## Features
 
-- macOS or Windows 10/11
-- [Windscribe](https://windscribe.com/) installed and logged in
-- Python 3 with Tkinter (the python.org installer includes it)
+- Sidebar of live datacenters, grouped by continent and region
+- Search plus 10G / P2P / Pro filters
+- Queue whole regions, visible matches, or a custom nickname
+- Protocol chips: WireGuard, IKEv2, UDP, TCP, Stealth, WS Tunnel
+- Sequential connect + ping tests with live progress and ETA
+- Results table sorted by ping, double-click or **Connect to Best**
+- Optional stay-connected-to-winner when a run finishes
+- Export CSV, persist queue and settings locally
+- Current Windscribe login / connection / IP in the toolbar
 
-## Run on macOS
+This app does not include your account.
+
+## Build
 
 ```bash
-python3 windscribe_tester.py
+xcodegen generate
+xcodebuild -scheme WindscribeTester -configuration Release -derivedDataPath DerivedData
+open "DerivedData/Build/Products/Release/Windscribe Tester.app"
 ```
+
+Or open `WindscribeTester.xcodeproj` in Xcode and Run.
 
 The CLI is usually `/usr/local/bin/windscribe-cli`. Servers are read from:
 
 `~/Library/Preferences/com.windscribe.Windscribe2.plist`
 
-## Run on Windows
-
-Double-click `run-windows.bat`, or from a terminal:
-
-```bat
-py -3 windscribe_tester.py
-```
-
-The CLI is usually `C:\Program Files\Windscribe\windscribe-cli.exe`. Servers are read from:
-
-`HKCU\Software\Windscribe\Windscribe2` value `wsnetSettings`
-
-Ping uses `ping -n 3`. If the registry key is missing, the app falls back to `windscribe-cli locations`.
+If that file is missing, the app falls back to `windscribe-cli locations`.
 
 ## What a test does
 
-Pick servers, choose protocols, then start the test. Each attempt disconnects, connects by nickname, and pings the target (default `1.1.1.1`).
+Pick servers, choose protocols, then start the test. Each attempt disconnects, connects by nickname, waits until Connected or timeout, and pings the target (default `1.1.1.1`).
 
-Settings stay on your computer. This repo does not contain account data.
+Settings stay on your computer.
+
+## Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| ⌘↩ | Start test |
+| ⌘. | Cancel |
+| ⌘R | Reload servers |
+| ⌘⇧A | Select all visible servers |
+| ⌘B | Connect to best result |
+| ⌘⇧E | Export CSV |
+| ⌘, | Settings |
+
+## Previous Python app
+
+The original Tkinter version for macOS and Windows is in `legacy/`.
