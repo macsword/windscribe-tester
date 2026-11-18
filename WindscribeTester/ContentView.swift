@@ -1,18 +1,95 @@
 import SwiftUI
 
+struct UIScaleContainer<Content: View>: View {
+    var scale: Double
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let scale = CGFloat(max(scale, 1))
+        if scale <= 1.01 {
+            content
+        } else {
+            GeometryReader { proxy in
+                content
+                    .frame(
+                        width: proxy.size.width / scale,
+                        height: proxy.size.height / scale,
+                        alignment: .topLeading
+                    )
+                    .scaleEffect(scale, anchor: .topLeading)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    .clipped()
+            }
+        }
+    }
+}
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(in: proposal.width ?? .infinity, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(in: bounds.width, subviews: subviews)
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + result.origins[index].x, y: bounds.minY + result.origins[index].y),
+                proposal: ProposedViewSize(size)
+            )
+        }
+    }
+
+    private func arrange(in maxWidth: CGFloat, subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            usedWidth = max(usedWidth, x - spacing)
+        }
+
+        return (origins, CGSize(width: usedWidth, height: y + rowHeight))
+    }
+}
+
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+
+    private var scale: CGFloat { CGFloat(max(model.uiScale, 1)) }
 
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
-            SidebarView()
-                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 440)
+            UIScaleContainer(scale: model.uiScale) {
+                SidebarView()
+            }
+            .navigationSplitViewColumnWidth(
+                min: 320 * scale,
+                ideal: 360 * scale,
+                max: 560 * scale
+            )
         } detail: {
-            DetailView()
+            UIScaleContainer(scale: model.uiScale) {
+                DetailView()
+            }
         }
         .navigationTitle("Windscribe Tester")
         .toolbar { toolbar }
+        .frame(minWidth: 980 * scale, minHeight: 640 * scale)
         .task {
             await model.bootstrap()
             while !Task.isCancelled {

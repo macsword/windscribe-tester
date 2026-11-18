@@ -26,23 +26,31 @@ struct DetailView: View {
     }
 
     private var protocolBar: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Text("Protocols")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-            ForEach(VPNProtocolKind.allCases) { proto in
-                ProtocolChip(
-                    proto: proto,
-                    isOn: model.enabledProtocols.contains(proto)
-                ) {
-                    model.toggleProtocol(proto)
+                .padding(.top, 6)
+            FlowLayout(spacing: 8) {
+                ForEach(VPNProtocolKind.allCases) { proto in
+                    ProtocolChip(
+                        proto: proto,
+                        isOn: model.enabledProtocols.contains(proto)
+                    ) {
+                        model.toggleProtocol(proto)
+                    }
+                    .disabled(model.isTesting)
+                    .fixedSize()
                 }
-                .disabled(model.isTesting)
             }
-            Spacer()
+            Spacer(minLength: 8)
             Text(queueSummary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 140, alignment: .trailing)
+                .padding(.top, 6)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -212,36 +220,40 @@ struct DetailView: View {
     }
 
     private var resultsFooter: some View {
-        HStack(spacing: 10) {
-            Button("Connect to Selected") {
-                if let id = selection, let result = model.sortedResults.first(where: { $0.id == id }) {
-                    model.connect(to: result)
+        HStack(alignment: .center, spacing: 10) {
+            FlowLayout(spacing: 8) {
+                Button("Connect to Selected") {
+                    if let id = selection, let result = model.sortedResults.first(where: { $0.id == id }) {
+                        model.connect(to: result)
+                    }
                 }
+                .disabled(selection == nil || model.isTesting)
+                .fixedSize()
+
+                Button("Connect to Best") { model.connectToBest() }
+                    .disabled(model.bestResult == nil || model.isTesting)
+                    .keyboardShortcut("b", modifiers: [.command])
+                    .fixedSize()
+
+                Button("Retest Failed") { model.retestFailed() }
+                    .disabled(model.isTesting || model.results.allSatisfy { $0.pingMs != nil } || model.results.isEmpty)
+                    .fixedSize()
             }
-            .disabled(selection == nil || model.isTesting)
-
-            Button("Connect to Best") { model.connectToBest() }
-                .disabled(model.bestResult == nil || model.isTesting)
-                .keyboardShortcut("b", modifiers: [.command])
-
-            Button("Retest Failed") { model.retestFailed() }
-                .disabled(model.isTesting || model.results.allSatisfy { $0.pingMs != nil } || model.results.isEmpty)
-
-            Spacer()
-
+            Spacer(minLength: 8)
             if let best = model.bestResult {
                 Text("Best: \(best.serverLabel) · \(best.proto.displayName) · \(best.pingText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             } else if !model.results.isEmpty {
                 Text("\(model.successCount) working of \(model.results.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
             Button("Export CSV") { model.exportCSV() }
                 .disabled(model.results.isEmpty)
+                .fixedSize()
         }
         .controlSize(.regular)
         .padding(.horizontal, 16)

@@ -33,6 +33,26 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Interface") {
+                LabeledContent("UI scale") {
+                    HStack(spacing: 8) {
+                        ForEach([1.0, 1.5, 2.0], id: \.self) { value in
+                            let selected = abs(model.uiScale - value) < 0.01
+                            Button(scaleLabel(value)) {
+                                model.uiScale = value
+                                model.persist()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(selected ? Palette.accent : Color.secondary)
+                            .fontWeight(selected ? .semibold : .regular)
+                        }
+                    }
+                }
+                Text("Zooms the main window. 1× is the default size.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Test") {
                 Stepper(value: $model.timeoutSeconds, in: 5...60, step: 1) {
                     LabeledContent("Connect timeout", value: "\(model.timeoutSeconds) seconds")
@@ -71,12 +91,18 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 520)
+        .frame(width: 560, height: 600)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
         }
+    }
+
+    private func scaleLabel(_ value: Double) -> String {
+        if value == 1.5 { return "1.5×" }
+        if value == 2.0 { return "2×" }
+        return "1×"
     }
 
     private func browseCLI() {

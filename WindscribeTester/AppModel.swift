@@ -18,6 +18,7 @@ final class AppModel {
     var enabledProtocols: Set<VPNProtocolKind> = VPNProtocolKind.defaultEnabled
     var cliPath = WindscribeCLI.detectPath()
     var timeoutSeconds = 15
+    var uiScale: Double = 1.0
     var pingTarget = "1.1.1.1"
     var stayConnectedToBest = false
     var vpnStatus = VPNStatus()
@@ -317,6 +318,7 @@ final class AppModel {
         let defaults = UserDefaults.standard
         defaults.set(cliPath, forKey: "cliPath")
         defaults.set(timeoutSeconds, forKey: "timeoutSeconds")
+        defaults.set(uiScale, forKey: "uiScale")
         defaults.set(pingTarget, forKey: "pingTarget")
         defaults.set(stayConnectedToBest, forKey: "stayConnectedToBest")
         defaults.set(enabledProtocols.map(\.rawValue), forKey: "enabledProtocols")
@@ -332,6 +334,8 @@ final class AppModel {
         cliPath = storedPath.isEmpty ? WindscribeCLI.detectPath() : storedPath
         let timeout = defaults.integer(forKey: "timeoutSeconds")
         timeoutSeconds = timeout == 0 ? 15 : min(60, max(5, timeout))
+        let storedScale = defaults.double(forKey: "uiScale")
+        uiScale = [1.0, 1.5, 2.0].contains(storedScale) ? storedScale : 1.0
         pingTarget = defaults.string(forKey: "pingTarget") ?? "1.1.1.1"
         stayConnectedToBest = defaults.bool(forKey: "stayConnectedToBest")
         filter10G = defaults.bool(forKey: "filter10G")
